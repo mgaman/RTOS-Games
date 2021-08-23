@@ -1,0 +1,22 @@
+at+cgatt=1  // join packet service
+at+cgdcont=1,"IP","net.hotm"  // set pdp parameters
+at+cgdcont=1,"IP","uinternet"  // set pdp parameters
+AT+CGACT=1,1  // activate pdp
+AT+CIFSR  // get ip address
+at+cipstart="TCP","henrylineage.com",80   //109.66.79.186
+at+cipstart="TCP","henrylineage.com",443   //109.66.79.186
+at+cipstart="TCP","google.cccc",80
+at+cipstart="TCP","google.com",80
+at+cipclose
+at+cgreg?
+AT+CDNSGIP="google.com"
+AT+CDNSGIP="henrylineage.com"
+AT+CDNSGIP="henrylineagex.com"
+GET /webdata/WC/RawData.php?AC=powerup&imei=1234&UT=101&m0=99&m1=99&epoch=12345678 HTTP/1.0
+
+
+User-Agent Arduino
+Accept: text/plain
+Host: henrylineage.com
+
+

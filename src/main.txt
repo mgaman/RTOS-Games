@@ -1,0 +1,172 @@
+#include <Arduino.h>
+#include <HardwareSerial.h>
+#include <Arduino_FreeRTOS.h>
+#include <stream_buffer.h> 
+#include "config.h"
+
+// In PlatformIO MUST use prototypes for functions
+
+void TaskBlink( void *pvParameters );
+void TaskSerial1Handler(void *pvParameters);
+void TaskSerial1Reader(void *pvParameters);
+
+// Global Data
+StreamBufferHandle_t Serial1BuffH;
+
+void printHWM(char *);
+
+void setup() {
+  // All pinModes etc handles by individual tasks
+  Serial.begin(115200); 
+  Serial1.begin(115200); 
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB, on LEONARDO, MICRO, YUN, and other 32u4 based boards.
+  }
+  // create global data
+  Serial1BuffH = xStreamBufferCreate(128,1);
+  if (Serial1BuffH == NULL) {
+    Serial.println("Serial Buffer Create failed");
+  }
+  // Now set all tasks to run independently.
+#if 0
+  xTaskCreate(
+    TaskBlink
+    ,  "Blink"   // A name just for humans
+    ,  90  // This stack size was checked & adjusted by reading the Stack Highwater
+    ,  NULL
+    ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    ,  NULL );
+#endif
+
+#if 1
+  Serial.println("SH create");
+  xTaskCreate(
+    TaskSerial1Handler
+    ,  "Serial1Handler"   // A name just for humans
+    ,  90  // This stack size was checked & adjusted by reading the Stack Highwater
+    ,  NULL
+    ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    ,  NULL );
+
+  Serial.println("SR create");
+  xTaskCreate(
+    TaskSerial1Reader
+    ,  "Serial1Reader"   // A name just for humans
+    ,  110 // This stack size was checked & adjusted by reading the Stack Highwater
+    ,  NULL
+    ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    ,  NULL );
+#endif
+}
+
+void loop() {
+  // never any code here
+}
+
+void TaskBlink( void *pvParameters ) {
+  pinMode(LED_BUILTIN,OUTPUT);
+  digitalWrite(LED_BUILTIN,LOW);
+  boolean state = false;  // false = LOW
+
+  for (;;) {
+    digitalWrite(LED_BUILTIN, state ? HIGH : LOW);  // toggle pin
+    Serial.println(state ? "to High" : "to Low");
+//    printHWM("TaskBlink");
+    state = !state;
+    vTaskDelay(LED_DELAY / portTICK_PERIOD_MS);   
+  }
+}
+
+void TaskSerial1Handler(void *pvParameters) {
+  Serial.println("SH start");
+  while (true) {
+    size_t av = xStreamBufferBytesAvailable(Serial1BuffH);
+    if (av == 0)
+      portYIELD();
+    else {
+//      printHWM("TaskSerial1Handler");
+      while (av > 0) {
+        // print out on a byte by byte basis
+        char c[1];
+        xStreamBufferReceive(Serial1BuffH,c,1,0);
+        Serial.print(c[0]);
+        av--;
+      }
+    }
+  }
+}
+
+/*
+    If data available, copy into the stream buffer
+*/
+void TaskSerial1Reader(void *pvParameters) {
+  Serial.println("SR start");
+  // do hardware reset of modem
+  pinMode(MODEM_RESET_PIN,OUTPUT);
+  digitalWrite(MODEM_RESET_PIN,LOW);
+  digitalWrite(MODEM_RESET_PIN,HIGH);
+  delay(MODEM_RESET_TIME);
+  digitalWrite(MODEM_RESET_PIN,LOW);
+
+  
+  byte inbuf[16];
+  while (true) {
+    if (Serial1.available() == 0)
+      portYIELD();
+    else {
+//      printHWM("TaskSerial1Reader");
+      unsigned num = Serial1.available();
+      Serial1.readBytes(inbuf,num);   
+      /* Attempt to copy the data to the stream buffer. */
+      size_t xBytesSent = xStreamBufferSend( Serial1BuffH,
+                          (void *) inbuf,
+                          num,
+                          1 );
+      if( xBytesSent != num )
+      {
+        /* There was not enough free space in the stream buffer for the entire
+          string to be written, ut xBytesSent bytes were written. */
+        Serial.print('?');
+      }
+    }
+  }
+}
+
+void printHWM(char * tn) {
+  Serial.print(tn); Serial.print(' ');
+  UBaseType_t HWM;    // stack high water mark
+  HWM = uxTaskGetStackHighWaterMark(NULL);  // self
+  Serial.println(HWM);
+}
+
+
+            if (u1linemode) {
+                // aggregate into a line
+                for (int i=inbufEmpty; i<inbufFill;i++) {
+                    linebuf[linecount++] = inbuf[inbufEmpty++];
+                    if (linebuf[linecount-1] == 0x0a) { // end of line 
+                        if (xQueueSend(hShortMessageQueue,linebuf,1) != pdPASS) {
+                            Serial.println("Short message not sent");
+                        }
+                        else {
+                            Serial.print(">>> ");
+                            Serial.print(linebuf);
+                        }
+                        // shift all unread data to the bottom of the buffer and reset pointers
+                        // empty linebuf
+                        linecount = 0;
+                        memcpy(inbuf,&inbuf[inbufEmpty],inbufFill - inbufEmpty);
+                        inbufFill -= inbufEmpty;
+                        inbufEmpty = 0;                
+                    }
+                }
+            }
+            else {
+                // copy straight to raw message queue
+                sRM.length = inread;
+                memcpy(sRM.rawData,inbuf,inread);
+                if (xQueueSend(hRawMessageQueue,(void *)&sRM,1) != pdPASS) {
+                    Serial.println("Raw message not sent");
+                }
+                inbufFill = 0; // empty buffer
+            }
